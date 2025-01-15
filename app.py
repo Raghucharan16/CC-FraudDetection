@@ -3,14 +3,16 @@ import pandas as pd
 import numpy as np
 import pickle
 from PIL import Image
+import tensorflow as tf
 from src.preprocessor import CreditCardPreprocessor
 import os
 
 # Load the trained model and scaler
 @st.cache_resource
 def load_model():
-    with open('model/fraud_model.pkl', 'rb') as f:
-        model, scaler = pickle.load(f)
+    model = tf.keras.models.load_model('model/best_model.h5')
+    with open('model/scaler.pkl', 'rb') as f:
+        scaler = pickle.load(f)
     return model, scaler
 
 def main():
