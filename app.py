@@ -1,9 +1,10 @@
+# app.py
 import streamlit as st
 import pandas as pd
 import numpy as np
+import tensorflow as tf
 import pickle
 from PIL import Image
-import tensorflow as tf
 from src.preprocessor import CreditCardPreprocessor
 import os
 
@@ -107,9 +108,10 @@ def main():
         # Scale the input
         input_scaled = scaler.transform(input_data)
         
-        # Make prediction
-        prediction = model.predict(input_scaled)[0]
-        probability = model.predict_proba(input_scaled)[0][1]
+        # Make prediction using Keras model
+        prediction_prob = model.predict(input_scaled, verbose=0)  # Get probability
+        prediction = (prediction_prob >= 0.5).astype(int)[0][0]  # Convert to binary prediction
+        probability = prediction_prob[0][0]  # Get the probability value
         
         # Show prediction
         st.subheader('Analysis Result')

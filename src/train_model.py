@@ -5,11 +5,6 @@ import tensorflow as tf
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from imblearn.over_sampling import SMOTE
-import seaborn as sns
-import matplotlib.pyplot as plt
-from keras.models import Sequential
-from keras.layers import Dense, Dropout
-from keras.callbacks import EarlyStopping, ModelCheckpoint
 import pickle
 import os
 
@@ -20,150 +15,107 @@ class FraudDetectionModel:
         self.history = None
     
     def create_model(self, input_dim):
-        """Create a deep neural network model"""
-        model = Sequential([
-            # Input layer
-            Dense(64, activation='relu', input_dim=input_dim),
-            Dropout(0.3),
+        """Create a deep neural network model with better probability distribution"""
+        model = tf.keras.Sequential([
+            # Input layer with L2 regularization
+            tf.keras.layers.Dense(
+                32, 
+                activation='relu',
+                input_dim=input_dim,
+                kernel_regularizer=tf.keras.regularizers.l2(0.01)
+            ),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dropout(0.2),
             
-            # Hidden layers
-            Dense(32, activation='relu'),
-            Dropout(0.2),
-            Dense(16, activation='relu'),
-            Dropout(0.2),
+            # Hidden layer 1
+            tf.keras.layers.Dense(
+                16, 
+                activation='relu',
+                kernel_regularizer=tf.keras.regularizers.l2(0.01)
+            ),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dropout(0.2),
             
-            # Output layer
-            Dense(1, activation='sigmoid')
+            # Hidden layer 2 with smaller size
+            tf.keras.layers.Dense(
+                8, 
+                activation='relu',
+                kernel_regularizer=tf.keras.regularizers.l2(0.01)
+            ),
+            tf.keras.layers.BatchNormalization(),
+            tf.keras.layers.Dropout(0.1),
+            
+            # Output layer with reduced complexity
+            tf.keras.layers.Dense(1, activation='sigmoid')
         ])
         
+        # Use a lower learning rate
+        optimizer = tf.keras.optimizers.Adam(learning_rate=0.001)
+        
         model.compile(
-            optimizer='adam',
+            optimizer=optimizer,
             loss='binary_crossentropy',
-            metrics=['accuracy', tf.keras.metrics.AUC(), tf.keras.metrics.Precision(), tf.keras.metrics.Recall()]
+            metrics=['accuracy', tf.keras.metrics.AUC()]
         )
         
         return model
 
-    def load_and_prepare_data(self, data_path):
-        """Load and prepare data for training"""
-        # Load data
+    def train(self, data_path):
+        # Load and prepare data
         df = pd.read_csv(data_path)
-        
-        # Create visualization directory if it doesn't exist
-        os.makedirs('visualizations', exist_ok=True)
-        
-        # Visualize class distribution
-        plt.figure(figsize=(8, 6))
-        df['fraud'].value_counts(normalize=True).plot(kind='bar')
-        plt.title('Distribution of Fraud vs Normal Transactions')
-        plt.savefig('visualizations/class_distribution.png')
-        plt.close()
-        
-        # Create correlation heatmap
-        plt.figure(figsize=(12, 8))
-        sns.heatmap(df.corr(), cmap='coolwarm', center=0)
-        plt.title('Feature Correlation Heatmap')
-        plt.tight_layout()
-        plt.savefig('visualizations/correlation_heatmap.png')
-        plt.close()
         
         # Separate features and target
         X = df.drop('fraud', axis=1)
         y = df['fraud']
         
-        # Split data into train, validation, and test sets
-        X_temp, X_test, y_temp, y_test = train_test_split(
-            X, y, test_size=0.15, random_state=42, stratify=y
-        )
-        
-        X_train, X_val, y_train, y_val = train_test_split(
-            X_temp, y_temp, test_size=0.176, random_state=42, stratify=y_temp
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42, stratify=y
         )
         
         # Scale features
         X_train_scaled = self.scaler.fit_transform(X_train)
-        X_val_scaled = self.scaler.transform(X_val)
         X_test_scaled = self.scaler.transform(X_test)
         
-        # Apply SMOTE to training data only
-        smote = SMOTE(random_state=42)
+        # Apply SMOTE with lower sampling_strategy
+        smote = SMOTE(sampling_strategy=0.5, random_state=42)  # Create minority class at 50% of majority
         X_train_balanced, y_train_balanced = smote.fit_resample(X_train_scaled, y_train)
         
-        return (X_train_balanced, y_train_balanced, 
-                X_val_scaled, y_val,
-                X_test_scaled, y_test)
-
-    def train(self, data_path):
-        """Train the model"""
-        # Prepare data
-        (X_train_balanced, y_train_balanced,
-         X_val_scaled, y_val,
-         X_test_scaled, y_test) = self.load_and_prepare_data(data_path)
-        
-        # Create model
+        # Create and train model
         self.model = self.create_model(X_train_balanced.shape[1])
         
-        # Define callbacks
-        early_stopping = EarlyStopping(
+        # Add early stopping with higher patience
+        early_stopping = tf.keras.callbacks.EarlyStopping(
             monitor='val_loss',
-            patience=5,
+            patience=10,
             restore_best_weights=True
         )
         
-        model_checkpoint = ModelCheckpoint(
-            'model/best_model.h5',
-            monitor='val_loss',
-            save_best_only=True
-        )
+        # Train with class weights to handle imbalance
+        class_weight = {0: 1., 1: 2.}  # Give more weight to fraud class
         
-        # Train model
         self.history = self.model.fit(
-            X_train_balanced, y_train_balanced,
-            validation_data=(X_val_scaled, y_val),
-            epochs=50,
-            batch_size=32,
-            callbacks=[early_stopping, model_checkpoint]
+            X_train_balanced,
+            y_train_balanced,
+            epochs=5,
+            batch_size=64,
+            validation_split=0.2,
+            callbacks=[early_stopping],
+            class_weight=class_weight,
+            verbose=1
         )
         
-        # Plot training history
-        self.plot_training_history()
-        
-        # Evaluate on test set
-        test_results = self.model.evaluate(X_test_scaled, y_test)
-        print("\nTest Set Results:")
-        for metric, value in zip(self.model.metrics_names, test_results):
-            print(f"{metric}: {value:.4f}")
-        
-        # Save the scaler
+        # Save model and scaler
+        self.model.save('model/best_model.h5')
         with open('model/scaler.pkl', 'wb') as f:
             pickle.dump(self.scaler, f)
-    
-    def plot_training_history(self):
-        """Plot training metrics"""
-        metrics = ['loss', 'accuracy', 'auc', 'precision', 'recall']
-        plt.figure(figsize=(15, 10))
         
-        for i, metric in enumerate(metrics, 1):
-            plt.subplot(2, 3, i)
-            plt.plot(self.history.history[metric], label='Train')
-            plt.plot(self.history.history[f'val_{metric}'], label='Validation')
-            plt.title(f'Model {metric.capitalize()}')
-            plt.xlabel('Epoch')
-            plt.ylabel(metric.capitalize())
-            plt.legend()
-        
-        plt.tight_layout()
-        plt.savefig('visualizations/training_history.png')
-        plt.close()
-
-def main():
-    # Create directories if they don't exist
-    os.makedirs('model', exist_ok=True)
-    os.makedirs('visualizations', exist_ok=True)
-    
-    # Initialize and train model
-    fraud_detector = FraudDetectionModel()
-    fraud_detector.train('data/card_transdata.csv')
+        # Test predictions
+        test_pred_probs = self.model.predict(X_test_scaled)
+        print("\nSample of prediction probabilities:")
+        print(test_pred_probs[:10])
 
 if __name__ == "__main__":
-    main()
+    os.makedirs('models', exist_ok=True)
+    model = FraudDetectionModel()
+    model.train('data/card_transdata.csv')
