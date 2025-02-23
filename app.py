@@ -26,6 +26,19 @@ with col2:
     used_pin = st.selectbox("Used PIN", [1, 0], format_func=lambda x: 'Yes' if x == 1 else 'No')
     online_order = st.selectbox("Online Order", [1, 0], format_func=lambda x: 'Yes' if x == 1 else 'No')
 
+# Add card image upload section
+st.subheader("Optional Card Verification")
+with st.expander("🖼️ Upload Card Image (Front)"):
+    uploaded_file = st.file_uploader("For visual verification (PNG/JPG)", 
+                                   type=["png", "jpg", "jpeg"],
+                                   help="This is optional and only used for interface demonstration")
+    
+    if uploaded_file is not None:
+        st.image(uploaded_file, 
+                 caption="Uploaded Card Image", 
+                 use_column_width=True,
+                 width=200)
+
 # Prepare input
 input_data = np.array([[distance_home, distance_last_trans, ratio_median,
                        repeat_retailer, used_chip, used_pin, online_order]])
